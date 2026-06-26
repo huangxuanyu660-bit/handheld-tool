@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Handheld Extractor</title>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #141518;
+  --surface: #1e2025;
+  --surface2: #272a30;
+  --border: #32363f;
+  --accent: #4f9eff;
+  --accent2: #2563eb;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --err: #f87171;
+  --text: #e8eaed;
+  --muted: #8b909a;
+  --radius: 8px;
+}
+
+body {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-size: 13px;
+}
+
+header {
+  padding: 20px 32px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.logo {
+  width: 32px; height: 32px;
+  background: var(--accent);
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 700; color: #fff;
+  flex-shrink: 0;
+}
+
+header h1 {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--text);
+}
+
+header .subtitle {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.main {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+/* Upload zone */
+.upload-zone {
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 48px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  background: var(--surface);
+  margin-bottom: 20px;
+  position: relative;
+}
+.upload-zone:hover, .upload-zone.drag { border-color: var(--accent); background: #1a2235; }
+.upload-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.upload-icon { font-size: 36px; margin-bottom: 12px; }
+.upload-label { font-size: 14px; color: var(--text); font-weight: 500; margin-bottom: 6px; }
+.upload-hint { font-size: 11px; color: var(--muted); }
+
+/* Options bar */
+.options-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.options-bar label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-right: 4px;
+}
+
+.toggle-group {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.toggle-group button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 6px 14px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.toggle-group button.active {
+  background: var(--accent2);
+  color: #fff;
+}
+.toggle-group button:not(.active):hover { background: var(--surface2); color: var(--text); }
+
+.btn-run {
+  margin-left: auto;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 20px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.btn-run:hover { background: #3b8ae0; }
+.btn-run:disabled { background: var(--surface2); color: var(--muted); cursor: not-allowed; }
+
+/* File list */
+.file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  transition: border-color 0.15s;
+}
+.file-row.ok { border-color: #1d4a37; }
+.file-row.warn { border-color: #44330a; }
+.file-row.err { border-color: #4a1c1c; }
+
+.file-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--muted);
+}
+.file-dot.ok { background: var(--ok); }
+.file-dot.warn { background: var(--warn); }
+.file-dot.err { background: var(--err); }
+.file-dot.spin {
+  background: var(--accent);
+  animation: pulse 0.8s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.file-name {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-status {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.file-status.ok { color: var(--ok); }
+.file-status.warn { color: var(--warn); }
+.file-status.err { color: var(--err); }
+
+.file-remove {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  transition: color 0.1s;
+}
+.file-remove:hover { color: var(--err); }
+
+/* Results */
+.result-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.result-bar .stat { font-size: 22px; font-weight: 700; color: var(--accent); }
+.result-bar .stat-label { font-size: 11px; color: var(--muted); }
+.result-bar .dl-btn {
+  margin-left: auto;
+  background: var(--ok);
+  color: #0a1a12;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 18px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.result-bar .dl-btn:hover { background: #2ebd87; }
+
+.output-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.output-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid #1d4a37;
+  border-radius: 6px;
+  padding: 10px 14px;
+}
+.output-row .out-name { flex: 1; font-size: 12px; color: var(--ok); }
+.output-row .out-count { font-size: 11px; color: var(--muted); }
+.out-dl {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 4px 12px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.out-dl:hover { border-color: var(--accent); color: var(--accent); }
+
+.empty-hint {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 40px;
+}
+
+.section-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">H</div>
+  <div>
+    <div class="subtitle">LEGO Studio</div>
+    <h1>Handheld Extractor</h1>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- Upload -->
+  <div class="section-label">上传文件</div>
+  <div class="upload-zone" id="uploadZone">
+    <input type="file" id="fileInput" accept=".io" multiple>
+    <div class="upload-icon">📦</div>
+    <div class="upload-label">拖拽或点击上传 .io 文件</div>
+    <div class="upload-hint">支持批量上传，自动识别包含 handheld 分组的文件</div>
+  </div>
+
+  <!-- File list -->
+  <div class="file-list" id="fileList"></div>
+
+  <!-- Options -->
+  <div class="options-bar" id="optionsBar" style="display:none">
+    <label>输出方式</label>
+    <div class="toggle-group">
+      <button class="active" id="btnMerge" onclick="setMode('merge')">合并为一个 .io</button>
+      <button id="btnSplit" onclick="setMode('split')">每个 handheld 单独 .io</button>
+    </div>
+    <button class="btn-run" id="btnRun" onclick="runExtract()">提取 Handheld</button>
+  </div>
+
+  <!-- Results -->
+  <div id="resultsArea"></div>
+
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const files = [];   // { name, file, status, parts, zip }
+let mode = 'merge';
+let outputBlobs = []; // { name, blob, count }
+
+// ── Upload ─────────────────────────────────────────────────────────────────
+const zone = document.getElementById('uploadZone');
+const input = document.getElementById('fileInput');
+
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+zone.addEventListener('drop', e => {
+  e.preventDefault(); zone.classList.remove('drag');
+  addFiles([...e.dataTransfer.files]);
+});
+input.addEventListener('change', () => { addFiles([...input.files]); input.value = ''; });
+
+function addFiles(newFiles) {
+  for (const f of newFiles) {
+    if (!f.name.endsWith('.io')) continue;
+    if (files.find(x => x.name === f.name)) continue;
+    files.push({ name: f.name, file: f, status: 'pending', statusMsg: '待处理', parts: 0, zip: null });
+  }
+  renderFileList();
+  document.getElementById('optionsBar').style.display = files.length ? 'flex' : 'none';
+  document.getElementById('resultsArea').innerHTML = '';
+}
+
+// ── File list UI ───────────────────────────────────────────────────────────
+function renderFileList() {
+  const el = document.getElementById('fileList');
+  if (!files.length) { el.innerHTML = ''; return; }
+  el.innerHTML = files.map((f, i) => `
+    <div class="file-row ${f.status === 'pending' ? '' : f.status}" id="row-${i}">
+      <div class="file-dot ${f.status === 'processing' ? 'spin' : f.status}"></div>
+      <span class="file-name">${esc(f.name)}</span>
+      <span class="file-status ${f.status}">${esc(f.statusMsg)}</span>
+      ${f.status === 'pending' ? `<button class="file-remove" onclick="removeFile(${i})">✕</button>` : ''}
+    </div>`).join('');
+}
+
+function removeFile(i) {
+  files.splice(i, 1);
+  renderFileList();
+  if (!files.length) document.getElementById('optionsBar').style.display = 'none';
+}
+
+function updateRow(i, status, msg, parts) {
+  files[i].status = status;
+  files[i].statusMsg = msg;
+  if (parts !== undefined) files[i].parts = parts;
+  const row = document.getElementById(`row-${i}`);
+  if (!row) return;
+  row.className = `file-row ${status}`;
+  row.querySelector('.file-dot').className = `file-dot ${status === 'processing' ? 'spin' : status}`;
+  row.querySelector('.file-status').className = `file-status ${status}`;
+  row.querySelector('.file-status').textContent = msg;
+  const rm = row.querySelector('.file-remove');
+  if (rm && status !== 'pending') rm.remove();
+}
+
+// ── Mode toggle ────────────────────────────────────────────────────────────
+function setMode(m) {
+  mode = m;
+  document.getElementById('btnMerge').classList.toggle('active', m === 'merge');
+  document.getElementById('btnSplit').classList.toggle('active', m === 'split');
+}
+
+// ── LDraw math ────────────────────────────────────────────────────────────
+function mmv(R, v) {
+  return [R[0]*v[0]+R[1]*v[1]+R[2]*v[2], R[3]*v[0]+R[4]*v[1]+R[5]*v[2], R[6]*v[0]+R[7]*v[1]+R[8]*v[2]];
+}
+function mmm(A, B) {
+  const r = new Array(9).fill(0);
+  for (let i=0;i<3;i++) for (let j=0;j<3;j++) for (let k=0;k<3;k++) r[i*3+j]+=A[i*3+k]*B[k*3+j];
+  return r;
+}
+
+const LOCAL_OFFSET = [0, 8, 0];
+const RREL = [-1,0,0, 0,1,0, 0,0,-1];
+
+function addPtc3(nx, ny, nz, nr) {
+  const wo = mmv(nr, LOCAL_OFFSET);
+  const pr = mmm(nr, RREL);
+  return [nx+wo[0], ny+wo[1], nz+wo[2], pr];
+}
+
+// ── LDR parsing ───────────────────────────────────────────────────────────
+function parseSections(text) {
+  const sections = {};
+  let curName = '__main__';
+  let curLines = [];
+  for (const raw of text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n')) {
+    const s = raw.trim();
+    const m = s.match(/^0 FILE (.+)$/);
+    if (m) { sections[curName] = curLines; curName = m[1].trim(); curLines = []; }
+    else curLines.push(raw);
+  }
+  sections[curName] = curLines;
+  return sections;
+}
+
+function extractHandheld(sections) {
+  // Find main section containing handheld reference
+  let main = null;
+  for (const [k, v] of Object.entries(sections)) {
+    for (const line of v) {
+      const toks = line.trim().split(/\s+/);
+      if (toks.length >= 15 && toks[0] === '1') {
+        const pn = toks.slice(14).join(' ').toLowerCase();
+        if (pn.includes('handheld') && !pn.includes('tops')) { main = v; break; }
+      }
+    }
+    if (main) break;
+  }
+  if (!main) return null;
+
+  // Get transform
+  let tLine = null;
+  for (const line of main) {
+    const toks = line.trim().split(/\s+/);
+    if (toks.length >= 15 && toks[0] === '1') {
+      const pn = toks.slice(14).join(' ').toLowerCase();
+      if (pn.includes('handheld') && !pn.includes('tops')) { tLine = toks; break; }
+    }
+  }
+  if (!tLine) return null;
+
+  const tx=+tLine[2], ty=+tLine[3], tz=+tLine[4];
+  const rm = tLine.slice(5,14).map(Number);
+
+  // Find handheld section
+  const hcKey = Object.keys(sections).find(k => k.toLowerCase().includes('handheld') && !k.toLowerCase().includes('tops'));
+  if (!hcKey) return null;
+
+  const parts = [];
+  for (const line of sections[hcKey]) {
+    const toks = line.trim().split(/\s+/);
+    if (toks.length >= 15 && toks[0] === '1') {
+      const color = toks[1] === '78' ? '1009000' : toks[1];
+      const lx=+toks[2], ly=+toks[3], lz=+toks[4];
+      const lr = toks.slice(5,14).map(Number);
+      const pn = toks.slice(14).join(' ');
+      const np = mmv(rm, [lx,ly,lz]);
+      const nr = mmm(rm, lr);
+      parts.push({ color, nx: np[0]+tx, ny: np[1]+ty, nz: np[2]+tz, nr, name: pn });
+    }
+  }
+  return parts;
+}
+
+function collectPartDefs(text) {
+  const sections = parseSections(text);
+  const defs = {};
+  for (const [k, v] of Object.entries(sections)) {
+    if (k === '__main__') continue;
+    if (v.some(l => /^[345] /.test(l.trim()))) defs[k] = v;
+  }
+  return defs;
+}
+
+function buildLdr(allLines, filename) {
+  const total = allLines.filter(l => l.startsWith('1 ')).length;
+  let out = `0 FILE ${filename}\r\n0 handheld\r\n0 Name:  handheld\r\n0 Author:  \r\n0 CustomBrick\r\n`;
+  out += `0 NumOfBricks:  ${total}\r\n`;
+  for (const l of allLines) out += l + '\r\n';
+  out += '0 NOFILE\r\n';
+  return out;
+}
+
+function appendDefs(ldr, defs) {
+  let out = ldr;
+  for (const [k, v] of Object.entries(defs)) {
+    out += `0 FILE ${k}\r\n`;
+    for (const l of v) out += l + '\r\n';
+    out += '0 NOFILE\r\n';
+  }
+  return out;
+}
+
+function partsToLines(parts) {
+  const lines = [];
+  for (const p of parts) {
+    lines.push(`1 ${p.color} ${p.nx.toFixed(6)} ${p.ny.toFixed(6)} ${p.nz.toFixed(6)} ${p.nr.map(v=>v.toFixed(6)).join(' ')} ${p.name}`);
+    if (p.color === '1009000' && p.name.includes('3024.dat') && !p.name.includes('ptc')) {
+      const [px,py,pz,pr] = addPtc3(p.nx, p.ny, p.nz, p.nr);
+      lines.push(`1 6 ${px.toFixed(6)} ${py.toFixed(6)} ${pz.toFixed(6)} ${pr.map(v=>v.toFixed(6)).join(' ')} 3024ptc3.dat`);
+    }
+  }
+  lines.push('0 STEP');
+  return lines;
+}
+
+async function buildZip(ldrContent, ldr2Content, customParts) {
+  const zip = new JSZip();
+  zip.file('model.ldr', ldrContent);
+  zip.file('model2.ldr', ldr2Content);
+  zip.file('modelv2.ldr', ldrContent);
+  zip.file('errorPartList.err', '');
+  const cp = zip.folder('CustomParts');
+  for (const [name, data] of Object.entries(customParts)) cp.file(name, data);
+  return await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+}
+
+// ── Main extraction ────────────────────────────────────────────────────────
+async function runExtract() {
+  const pending = files.filter(f => ['pending','warn','err'].includes(f.status));
+  if (!pending.length) return;
+
+  document.getElementById('btnRun').disabled = true;
+  document.getElementById('resultsArea').innerHTML = '';
+  outputBlobs = [];
+
+  // Load all zips
+  const loaded = [];
+  for (let i=0; i<files.length; i++) {
+    updateRow(i, 'processing', '解析中…');
+    try {
+      const buf = await files[i].file.arrayBuffer();
+      const zip = await JSZip.loadAsync(buf);
+      files[i].zip = zip;
+
+      const ldrFile = zip.file('model.ldr');
+      if (!ldrFile) { updateRow(i, 'err', '无 model.ldr'); continue; }
+      const ldrText = await ldrFile.async('string');
+      const sections = parseSections(ldrText);
+      const parts = extractHandheld(sections);
+
+      if (!parts || parts.length === 0) {
+        updateRow(i, 'warn', '无 handheld 分组，已跳过', 0);
+        continue;
+      }
+
+      updateRow(i, 'ok', `${parts.length} 个零件`, parts.length);
+      loaded.push({ idx: i, name: files[i].name.replace(/\.io$/, ''), parts, zip });
+    } catch(e) {
+      updateRow(i, 'err', '解析失败: ' + e.message);
+    }
+  }
+
+  if (!loaded.length) {
+    document.getElementById('resultsArea').innerHTML = `<div class="empty-hint">没有找到包含 handheld 分组的文件</div>`;
+    document.getElementById('btnRun').disabled = false;
+    return;
+  }
+
+  // Collect all custom parts
+  const allCustomParts = {};
+  for (const { zip } of loaded) {
+    const cpFolder = zip.folder('CustomParts');
+    if (cpFolder) {
+      const cpFiles = zip.file(/^CustomParts\//);
+      for (const f of cpFiles) {
+        if (f.dir) continue;
+        const fname = f.name.replace('CustomParts/', '');
+        if (!allCustomParts[fname]) {
+          allCustomParts[fname] = await f.async('uint8array');
+        }
+      }
+    }
+  }
+
+  // Collect part defs from model2.ldr
+  const allPartDefs = {};
+  for (const { zip } of loaded) {
+    const ldr2File = zip.file('model2.ldr');
+    if (ldr2File) {
+      const text = await ldr2File.async('string');
+      const defs = collectPartDefs(text);
+      for (const [k, v] of Object.entries(defs)) {
+        if (!allPartDefs[k]) allPartDefs[k] = v;
+      }
+    }
+  }
+
+  if (mode === 'merge') {
+    // All into one io, spaced along X
+    const SPACING = 200;
+    let offsetX = 0;
+    const allLines = [];
+
+    for (const { name, parts } of loaded) {
+      const xs = parts.map(p => p.nx);
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const shift = offsetX - minX;
+      const shifted = parts.map(p => ({ ...p, nx: p.nx + shift }));
+      allLines.push(...partsToLines(shifted));
+      offsetX += (maxX - minX) + SPACING;
+    }
+
+    const ldrOut = buildLdr(allLines, 'all_handhelds.io');
+    const ldr2Out = appendDefs(ldrOut, allPartDefs);
+    const blob = await buildZip(ldrOut, ldr2Out, allCustomParts);
+    const total = allLines.filter(l => l.startsWith('1 ')).length;
+    outputBlobs = [{ name: 'all_handhelds.io', blob, count: total, groups: loaded.length }];
+
+  } else {
+    // One io per file
+    for (const { name, parts, zip } of loaded) {
+      const lines = partsToLines(parts);
+      const ldrOut = buildLdr(lines, name + '.io');
+      const ldr2Out = appendDefs(ldrOut, allPartDefs);
+      const blob = await buildZip(ldrOut, ldr2Out, allCustomParts);
+      const total = lines.filter(l => l.startsWith('1 ')).length;
+      outputBlobs.push({ name: name + '_handheld.io', blob, count: total, groups: 1 });
+    }
+  }
+
+  renderResults(loaded.length);
+  document.getElementById('btnRun').disabled = false;
+}
+
+// ── Results UI ─────────────────────────────────────────────────────────────
+function renderResults(successCount) {
+  const totalParts = outputBlobs.reduce((s, o) => s + o.count, 0);
+  let html = `<div class="section-label" style="margin-top:24px">提取结果</div>`;
+
+  if (mode === 'merge') {
+    html += `<div class="result-bar">
+      <div><div class="stat">${successCount}</div><div class="stat-label">来源文件</div></div>
+      <div style="margin-left:20px"><div class="stat">${totalParts}</div><div class="stat-label">总零件数</div></div>
+      <button class="dl-btn" onclick="downloadAll()">下载 all_handhelds.io</button>
+    </div>`;
+  } else {
+    html += `<div class="result-bar">
+      <div><div class="stat">${outputBlobs.length}</div><div class="stat-label">输出文件</div></div>
+      <div style="margin-left:20px"><div class="stat">${totalParts}</div><div class="stat-label">总零件数</div></div>
+      <button class="dl-btn" onclick="downloadAll()">全部下载</button>
+    </div>
+    <div class="output-list">
+    ${outputBlobs.map((o,i) => `
+      <div class="output-row">
+        <span class="out-name">${esc(o.name)}</span>
+        <span class="out-count">${o.count} 零件</span>
+        <button class="out-dl" onclick="downloadOne(${i})">下载</button>
+      </div>`).join('')}
+    </div>`;
+  }
+
+  document.getElementById('resultsArea').innerHTML = html;
+}
+
+function downloadOne(i) {
+  const { name, blob } = outputBlobs[i];
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadAll() {
+  if (outputBlobs.length === 1) { downloadOne(0); return; }
+  // Zip all outputs
+  const zip = new JSZip();
+  for (const { name, blob } of outputBlobs) {
+    zip.file(name, await blob.arrayBuffer());
+  }
+  const mega = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+  const url = URL.createObjectURL(mega);
+  const a = document.createElement('a'); a.href = url; a.download = 'handhelds.zip'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+</script>
+</body>
+</html>
